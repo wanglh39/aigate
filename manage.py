@@ -8,6 +8,8 @@ import json
 import os
 import re
 import sqlite3
+import time
+import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -168,6 +170,52 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(404, {"error": "group not found"})
             return
 
+        if path == "/api/register-ccswitch":
+            cfg = load_aigate()
+            api_key = cfg.get("api_key", "")
+            active = cfg.get("active_route", "")
+            if not active or active not in cfg.get("routes", {}):
+                self._json(400, {"error": "没有激活的路由组"})
+                return
+            models = list(cfg["routes"][active].get("models", {}).keys())
+            if not models:
+                self._json(400, {"error": "激活路由组没有模型"})
+                return
+            first_model = models[0]
+            server = cfg.get("server", {})
+            host = server.get("host", "127.0.0.1")
+            port = server.get("port", 8317)
+            base_url = f"http://{host}:{port}"
+            toml = (
+                f'model_provider = "custom"\n'
+                f'model = "{first_model}"\n'
+                f'[model_providers.custom]\n'
+                f'name = "aigate"\n'
+                f'base_url = "{base_url}"\n'
+                f'wire_api = "chat"\n'
+                f'requires_openai_auth = false\n'
+                f'env_key = "AIGATE_API_KEY"\n'
+            )
+            settings_config = json.dumps({
+                "auth": {"OPENAI_API_KEY": api_key},
+                "config": toml,
+                "modelCatalog": {"models": [{"model": m, "displayName": m} for m in models]},
+            }, ensure_ascii=False)
+            con = sqlite3.connect(str(CC_DB))
+            cur = con.cursor()
+            cur.execute("SELECT id FROM providers WHERE name='aigate' AND app_type='codex'")
+            row = cur.fetchone()
+            pid = row[0] if row else str(uuid.uuid4())
+            now = int(time.time() * 1000)
+            cur.execute("""
+                INSERT OR REPLACE INTO providers
+                (id, app_type, name, settings_config, website_url, category, created_at, meta, is_current, in_failover_queue, cost_multiplier)
+                VALUES (?, 'codex', 'aigate', ?, ?, 'local', ?, '{}', 0, 0, '1.0')
+            """, (pid, settings_config, base_url, now))
+            con.commit()
+            con.close()
+            self._json(200, {"ok": True, "provider": "aigate", "models": models, "base_url": base_url})
+            return
 
         self._json(404, {"error": "not found"})
 
