@@ -192,7 +192,7 @@ class Handler(BaseHTTPRequestHandler):
                 f'[model_providers.custom]\n'
                 f'name = "aigate"\n'
                 f'base_url = "{base_url}"\n'
-                f'wire_api = "chat"\n'
+                f'wire_api = "responses"\n'
                 f'requires_openai_auth = false\n'
             )
             settings_config = json.dumps({
