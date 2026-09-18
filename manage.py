@@ -199,7 +199,7 @@ class Handler(BaseHTTPRequestHandler):
             settings_config = json.dumps({
                 "auth": {"OPENAI_API_KEY": api_key},
                 "config": toml,
-                "modelCatalog": {"models": [{"model": m, "displayName": m} for m in models]},
+                "modelCatalog": {"models": [{"model": m, "displayName": m, "contextWindow": 1000000, "reasoningLevels": ["low", "high", "max"]} for m in models]},
             }, ensure_ascii=False)
             con = sqlite3.connect(str(CC_DB))
             cur = con.cursor()
