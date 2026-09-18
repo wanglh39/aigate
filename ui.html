@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>aigate 模型路由管理</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, "Segoe UI", system-ui, sans-serif; background: #0d1117; color: #c9d1d9; min-height: 100vh; }
+header { background: #161b22; border-bottom: 1px solid #30363d; padding: 16px 24px; display: flex; justify-content: space-between; align-items: center; }
+header h1 { font-size: 18px; color: #58a6ff; }
+header .status { font-size: 13px; color: #8b949e; }
+header .status b { color: #3fb950; }
+main { display: flex; gap: 1px; background: #30363d; min-height: calc(100vh - 61px); }
+.panel { background: #0d1117; flex: 1; overflow-y: auto; padding: 20px; }
+.panel h2 { font-size: 15px; margin-bottom: 16px; color: #8b949e; text-transform: uppercase; letter-spacing: 1px; }
+.provider { background: #161b22; border: 1px solid #30363d; border-radius: 8px; margin-bottom: 12px; overflow: hidden; }
+.provider-head { padding: 10px 14px; background: #1c2128; cursor: pointer; display: flex; justify-content: space-between; align-items: center; }
+.provider-head .name { font-weight: 600; font-size: 14px; }
+.provider-head .url { font-size: 12px; color: #8b949e; }
+.provider-head .badge { font-size: 11px; padding: 2px 8px; border-radius: 10px; background: #238636; color: #fff; }
+.provider-head .badge.no { background: #da3633; }
+.provider-head .cheaper { font-size: 11px; padding: 2px 8px; border-radius: 10px; background: #1f6feb; color: #fff; margin-left: 6px; }
+.models { padding: 6px 0; }
+.model { padding: 7px 14px 7px 36px; display: flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer; }
+.model:hover { background: #1c2128; }
+.model input { margin: 0; }
+.model .tag { font-size: 11px; color: #8b949e; margin-left: auto; }
+.group { background: #161b22; border: 1px solid #30363d; border-radius: 8px; margin-bottom: 10px; padding: 12px 14px; }
+.group.active { border-color: #3fb950; }
+.group .gname { font-weight: 600; font-size: 14px; display: flex; align-items: center; gap: 8px; }
+.group .gname .dot { width: 8px; height: 8px; border-radius: 50%; background: #30363d; }
+.group.active .gname .dot { background: #3fb950; }
+.group .gmodels { font-size: 12px; color: #8b949e; margin: 8px 0; line-height: 1.6; }
+.group .gmodels span { display: inline-block; background: #21262d; padding: 2px 8px; border-radius: 4px; margin: 2px 2px; }
+.group .actions { display: flex; gap: 8px; }
+.btn { padding: 5px 14px; border-radius: 6px; border: 1px solid #30363d; background: #21262d; color: #c9d1d9; font-size: 12px; cursor: pointer; }
+.btn:hover { background: #30363d; }
+.btn.primary { background: #238636; border-color: #238636; color: #fff; }
+.btn.primary:hover { background: #2ea043; }
+.btn.danger { color: #f85149; }
+.btn.danger:hover { background: #da3633; color: #fff; }
+.footer-bar { position: sticky; bottom: 0; background: #161b22; border-top: 1px solid #30363d; padding: 14px 20px; display: flex; gap: 10px; align-items: center; }
+.footer-bar input { flex: 1; padding: 8px 12px; border-radius: 6px; border: 1px solid #30363d; background: #0d1117; color: #c9d1d9; font-size: 14px; }
+.footer-bar .count { font-size: 13px; color: #8b949e; white-space: nowrap; }
+.empty { color: #8b949e; font-size: 13px; text-align: center; padding: 40px; }
+.toast { position: fixed; top: 70px; right: 24px; background: #238636; color: #fff; padding: 10px 18px; border-radius: 8px; font-size: 13px; opacity: 0; transition: opacity .3s; z-index: 99; }
+.toast.show { opacity: 1; }
+.toast.err { background: #da3633; }
+</style>
+</head>
+<body>
+<header>
+  <h1>aigate 模型路由管理</h1>
+  <div class="status">激活组: <b id="activeName">-</b> &nbsp;|&nbsp; <span id="keyInfo"></span></div>
+</header>
+<main>
+  <section class="panel" id="leftPanel">
+    <h2>① 从中转站勾选模型</h2>
+    <div id="providers"></div>
+    <div class="footer-bar">
+      <input id="groupName" placeholder="路由组名称（如 my-pick）" value="my-pick">
+      <span class="count" id="pickCount">已选 0 个</span>
+      <button class="btn primary" onclick="saveGroup()">保存路由组</button>
+    </div>
+  </section>
+  <section class="panel" id="rightPanel">
+    <h2>② 已有路由组</h2>
+
+    <div id="groups"></div>
+  </section>
+</main>
+<div class="toast" id="toast"></div>
+<script>
+let providers = [], picked = new Map();
+
+async function loadProviders() {
+  const r = await fetch('/api/providers');
+  providers = await r.json();
+  const el = document.getElementById('providers');
+  if (!providers.length) { el.innerHTML = '<div class="empty">没找到中转站</div>'; return; }
+  el.innerHTML = providers.map((p, i) => {
+    const cheaper = p.name.includes('Waw') ? '<span class="cheaper">便宜</span>' : '';
+    const badge = p.has_key ? '<span class="badge">有key</span>' : '<span class="badge no">无key</span>';
+    const models = p.models.map(m => {
+      const id = `${i}:${m}`;
+      return `<label class="model"><input type="checkbox" data-pid="${i}" data-model="${m}" onchange="togglePick(this)"><span>${m}</span></label>`;
+    }).join('');
+    return `<div class="provider"><div class="provider-head"><span class="name">${p.name} ${cheaper}</span><span class="url">${p.base_url} ${badge}</span></div><div class="models">${models}</div></div>`;
+  }).join('');
+}
+
+async function loadRoutes() {
+  const r = await fetch('/api/routes');
+  const data = await r.json();
+  document.getElementById('activeName').textContent = data.active || '(无)';
+  document.getElementById('keyInfo').textContent = 'aigate key: ' + (data.api_key || '').slice(0, 16) + '...';
+  const el = document.getElementById('groups');
+  const names = Object.keys(data.routes);
+  if (!names.length) { el.innerHTML = '<div class="empty">还没有路由组</div>'; return; }
+  el.innerHTML = names.map(n => {
+    const models = data.routes[n];
+    const active = n === data.active ? 'active' : '';
+    const tags = models.map(m => `<span>${m}</span>`).join('');
+    const sw = n === data.active ? '' : `<button class="btn" onclick="switchGroup('${n}')">切换</button>`;
+    return `<div class="group ${active}"><div class="gname"><span class="dot"></span>${n} <span style="color:#8b949e;font-size:12px">(${models.length})</span></div><div class="gmodels">${tags}</div><div class="actions">${sw}<button class="btn danger" onclick="deleteGroup('${n}')">删除</button></div></div>`;
+  }).join('');
+}
+
+function togglePick(cb) {
+  const pid = parseInt(cb.dataset.pid);
+  const model = cb.dataset.model;
+  const p = providers[pid];
+  if (cb.checked) picked.set(model, { model, provider: p.name });
+  else picked.delete(model);
+  document.getElementById('pickCount').textContent = `已选 ${picked.size} 个`;
+}
+
+async function saveGroup() {
+  const group = document.getElementById('groupName').value.trim() || 'my-pick';
+  if (!picked.size) { toast('请先勾选模型', true); return; }
+  const r = await fetch('/api/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ group, picks: [...picked.values()] }) });
+  const data = await r.json();
+  if (data.ok) { toast(`已保存 ${data.count} 个模型到 ${data.group}`); await loadRoutes(); }
+  else toast('保存失败', true);
+}
+
+async function switchGroup(name) {
+  const r = await fetch('/api/switch', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ group: name }) });
+  const data = await r.json();
+  if (data.ok) { toast(`已切换到 ${name}`); await loadRoutes(); }
+}
+
+async function deleteGroup(name) {
+  if (!confirm(`删除路由组 ${name}？`)) return;
+  const r = await fetch('/api/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ group: name }) });
+  const data = await r.json();
+  if (data.ok) { toast(`已删除 ${name}`); await loadRoutes(); }
+}
+
+
+function toast(msg, err) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.className = 'toast show' + (err ? ' err' : '');
+  setTimeout(() => t.className = 'toast' + (err ? ' err' : ''), 2000);
+}
+
+loadProviders();
+loadRoutes();
+</script>
+</body>
+</html>

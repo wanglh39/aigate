@@ -1,0 +1,13 @@
+# 配置文件含 API 密钥，不入库
+.aigate/
+
+# 编译产物
+aigate.exe
+aigate
+
+# Python 缓存
+__pycache__/
+*.pyc
+
+# IDE / 工具
+.codeartsdoer/
