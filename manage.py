@@ -193,7 +193,7 @@ class Handler(BaseHTTPRequestHandler):
                 f'name = "aigate"\n'
                 f'base_url = "{base_url}"\n'
                 f'wire_api = "chat"\n'
-                f'requires_openai_auth = true\n'
+                f'requires_openai_auth = false\n'
             )
             settings_config = json.dumps({
                 "auth": {"OPENAI_API_KEY": api_key},
